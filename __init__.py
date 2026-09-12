@@ -48,93 +48,57 @@ from gpu_extras.batch import batch_for_shader
 # Кэш батчей только для текущей сессии
 _runtime_cache = {
     "batch": None,
-    "draw_handle": None
+    "draw_handle": None,
+    "last_com": None,
 }
 
-_com_cashe = {}
-
-def draw_callback():
-    # Получаем настройки из UI
-    props = bpy.context.scene.center_mass_props
-    if not props.is_enabled:
-        return
-        
-    if _runtime_cache["batch"]:
-        # Отрисовка батча...
-        pass
-
+_com_cache = {}
 
 # --- 1. ФУНКЦИЯ ОБНОВЛЕНИЯ КООРДИНАТ И БАТЧА ---
 def update_positions(scene, depsgraph):
-    need_recalc = False
-    return # на время
+    if not scene.center_mass_props.is_enabled:
+        return
 
+    tracked_names = {item.obj.name for item in scene.adv_mass_list if item.obj}
 
-    # Берем активный объект (не просто выделенный)
-    # obj = bpy.context.active_object
-    
-    # # Если объект не выделен — очищаем батч и выходим
-    # if not obj:
-    #     _runtime_cache["batch"] = None
-    #     return
-
-    # # АКТУАЛЬНЫЙ ЦЕНТР: Мировые координаты Origin объекта
-    # # (Позже подставишь сюда свой расчёт центра масс через bmesh)
-    # center = obj.matrix_world.translation.copy()
-
-
-    center = total_loc()
-    
-    # ПРОЕКЦИЯ: Для примера проецируем вниз на 2 units по оси Z
-    #projection = center.copy()
-    #projection.z -= 2.0
-    # Таким же образом можно применять вектора, НО делать не фиксированным а по функции чтобы отрезки были не статичными
-    
-    # Или делаем статичным
-    projection = (0.0,0.0,0.0)
-    
-    # ПЕРЕСОЗДАНИЕ БАТЧА (Старый батч заменяется новым, фантомных линий не будет)
-    shader = gpu.shader.from_builtin('UNIFORM_COLOR')
-    coords = [center, projection]
-    _runtime_cache["batch"] = batch_for_shader(shader, 'LINES', {"pos": coords})
-
-def rebuild_projection_batch(context):
-    scene = context.scene
-    
-    # Начало проекции в 3D курсоре
-    cursor_loc = scene.cursor.location.copy()
-    
-    # Конец проекции — рассчитанный центр масс
-    # (Вызываем total_loc() принудительно по кнопке/вызову)
-    try:
-        com_loc = total_loc()
-    except Exception:
-        com_loc = cursor_loc.copy()
-
-    com_loc = total_loc()
-        
-    shader = gpu.shader.from_builtin('UNIFORM_COLOR')
-    coords = [(com_loc.x,com_loc.y,0.0), com_loc]
-    _runtime_cache["batch"] = batch_for_shader(shader, 'LINES', {"pos": coords})
-    
-    # Принудительно обновляем отображение в окне 3D View
-    if context.area:
-        context.area.tag_redraw()
+    for update in depsgraph.updates:
+        uid = update.id
+        if hasattr(uid, "original") and uid.original is not None:
+            uid = uid.original
+        if isinstance(uid, bpy.types.Object) and uid.name in tracked_names:
+            if update.is_updated_geometry:
+                _com_cache.pop(uid.name, None)
 
 # --- 2. ФУНКЦИЯ GPU-ОТРИСОВКИ ---
 def draw_callback():
-    # Если батча нет -> не выполняем функию
+    if not bpy.context.scene.center_mass_props.is_enabled:
+        return
+
+    com_loc = total_loc()
+    if com_loc is None:
+        _runtime_cache["batch"] = None
+        _runtime_cache["last_com"] = None
+        return
+
+    last = _runtime_cache["last_com"]
+    if last is None or (last - com_loc).length > 1e-6:
+        shader = gpu.shader.from_builtin('UNIFORM_COLOR')
+        coords = [
+            (com_loc.x, com_loc.y, 0.0),
+            (com_loc.x, com_loc.y, com_loc.z),
+        ]
+        _runtime_cache["batch"] = batch_for_shader(shader, 'LINES', {"pos": coords})
+        _runtime_cache["last_com"] = com_loc.copy()
+
     if not _runtime_cache["batch"]:
         return
-        
-    # Создаем линию
+
     shader = gpu.shader.from_builtin('UNIFORM_COLOR')
     shader.bind()
-    shader.uniform_float("color", (1.0, 0.0, 0.0, 1.0)) # Красный
-    
-    #gpu.state.line_width_set(3.0)
-    _runtime_cache["batch"].draw(shader)
+    shader.uniform_float("color", (1.0, 0.0, 0.0, 1.0))
     gpu.state.line_width_set(3.0)
+    _runtime_cache["batch"].draw(shader)
+    gpu.state.line_width_set(1.0)
 
 # ---Функции для находения центра объекта--- ПЕРЕДЕЛАТЬ!!! ЧТОБЫ СЧИТАЛО ПО ГЛОБАЛЬНЫМ КООРДИНАТАМ
 
@@ -193,23 +157,24 @@ def get_bmesh_surface_center(bm: bmesh.types.BMesh) -> Vector:
         
     return Vector((0.0, 0.0, 0.0))
 
-def set_origin_to_bmesh_center_of_mass(obj: bpy.types.Object):
-    print(obj.type)
+def get_global_com(obj):
     if not obj or obj.type != 'MESH':
-        return
+        return None
 
-    obj_world_loc = obj.matrix_world.to_translation()
-    mesh = obj.data
-    bm = bmesh.new()
-    bm.from_mesh(mesh)
+    local_com = _com_cache.get(obj.name)
+    if local_com is None:
+        bm = bmesh.new()
+        bm.from_mesh(obj.data)
+        is_solid = all(len(e.link_faces) == 2 for e in bm.edges)
+        if is_solid:
+            local_com = get_bmesh_volume_center(bm)
+        else:
+            local_com = get_bmesh_surface_center(bm)
+        bm.free()
+        _com_cache[obj.name] = local_com
 
-    # Определяем, является ли сетка замкнутой (manifold)
-    is_solid = all(len(e.link_faces) == 2 for e in bm.edges)
-    print(is_solid)
-    if is_solid:
-        return get_bmesh_volume_center(bm) + obj_world_loc
-    else:
-        return get_bmesh_surface_center(bm) + obj_world_loc
+    # matrix_world читается каждый раз заново — свежий при движении/повороте
+    return obj.matrix_world @ local_com
 
 def total_loc():
     scene = bpy.context.scene
@@ -220,34 +185,45 @@ def total_loc():
         if not item.obj:
             continue
             
-        # Вычисляем финальную массу объекта в зависимости от выбранного режима
-        final_mass = 0.0
+        # 1. Расчет массы
         if item.input_mode == 'MASS':
             final_mass = item.mass
         elif item.input_mode == 'DENSITY':
             final_mass = get_obj_volume(item.obj) * item.density
+        else:
+            final_mass = 0.0
 
-        global_obj_loc = set_origin_to_bmesh_center_of_mass(item.obj)
-        print(global_obj_loc)
+        # Игнорируем объекты без массы
+        if final_mass <= 0:
+            continue
+
+        # 2. Быстрое получение центра из кэша (без замедлений bmesh)
+        global_obj_loc = get_global_com(item.obj)
             
-        weighted_sum += global_obj_loc * final_mass #weighted_sum += item.obj.location * final_mass
+        weighted_sum += global_obj_loc * final_mass
         total_mass += final_mass
         
+    # Если список пуст или суммарная масса = 0
     if total_mass <= 0:
-        self.report({'WARNING'}, "Total calculated mass is zero!")
-        return {'CANCELLED'}
+        return None
         
-    com = weighted_sum / total_mass
-    return com
+    return weighted_sum / total_mass# ---Функции отрисовки линии и проекции--- (пока только линий)
 
-# ---Функции отрисовки линии и проекции--- (пока только линий)
+def on_toggle_projection(self, context):
+    _runtime_cache["batch"] = None
+    _runtime_cache["last_com"] = None
+    for window in context.window_manager.windows:
+        for area in window.screen.areas:
+            if area.type == 'VIEW_3D':
+                area.tag_redraw()
 class CenterOfMassProperties(PropertyGroup):
-    is_enabled: bpy.props.BoolProperty(
-        name="Show Center of Mass",
+    is_enabled: BoolProperty(
+        name="Show Projection Line",
+        description="Toggle real-time projection line",
         default=False,
-        update=lambda self, context: context.area.tag_redraw()
+        update=on_toggle_projection
     )
-    density: bpy.props.FloatProperty(
+    density: FloatProperty(
         name="Material Density",
         default=1.0,
         min=0.01
@@ -309,7 +285,12 @@ class WM_OT_calculate_advanced_com(Operator):
         if isinstance(com, Vector):
             context.scene.cursor.location = com
             # Перестраиваем линию от 3D курсора к центру масс для отладки
-            rebuild_projection_batch(context)
+            _runtime_cache["batch"] = None
+            _runtime_cache["last_com"] = None
+            for window in context.window_manager.windows:
+                for area in window.screen.areas:
+                    if area.type == 'VIEW_3D':
+                        area.tag_redraw()
         #self.report({'INFO'}, f"COM: ({com.x:.3f}, {com.y:.3f}, {com.z:.3f}). Cursor moved.")
         return {'FINISHED'}
 
@@ -357,38 +338,33 @@ class OBJECT_PT_advanced_mass_panel(Panel):
         layout = self.layout
         scene = context.scene
         
+        # Кнопка-переключатель (включить/выключить проекцию)
+        icon_state = 'HIDE_OFF' if scene.center_mass_props.is_enabled else 'HIDE_ON'
+        layout.prop(scene.center_mass_props, "is_enabled", text="Live Projection", toggle=True, icon=icon_state)
+        
+        layout.separator()
         layout.operator("wm.populate_advanced_list", icon='ZOOM_ALL')
         layout.separator()
         
         if len(scene.adv_mass_list) == 0:
             layout.label(text="List empty. Select objects and import.")
             return
-            
-        #box = layout.box()
-        
-        # Шапка таблицы для понятности
+
         row_header = layout.row()
         row_header.label(text="Object Name")
         row_header.label(text="Mode Selection")
         row_header.label(text="Value / Input")
-        #layout.separator()
 
         row = layout.row()
-
         col = row.column(align=True)
         col.operator("wm.add_objects", icon='ADD', text="")
         col.operator("wm.remove_object", icon='REMOVE', text="")
-                # Вызов списка в панели (замените ваш row.template_list)
-        # Обязательно передаем scene и имя свойства-индекса в конце
+        
         row.template_list(
             "WM_WL_objects", "", 
             scene, "adv_mass_list", 
             scene, "adv_mass_list_index"
         )
-
-        layout.separator()
-        layout.operator("wm.calculate_advanced_com", icon='PHYSICS')
-
 
 class WM_WL_objects(bpy.types.UIList):
     def draw_item(self, context, layout, data, item, icon, active_data, active_propname):
