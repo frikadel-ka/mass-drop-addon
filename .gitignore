@@ -1,0 +1,26 @@
+# Byte-compiled / optimized files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Blender temporary & auto-save files
+*.blend1
+*.blend2
+*.crash.txt
+
+# VS Code & IDE settings
+.vscode/
+.idea/
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# Build outputs
+*.zip
+dist/
+build/
+
+# Test script
+center_objects_test_code.py
+gpu_test_code.py
