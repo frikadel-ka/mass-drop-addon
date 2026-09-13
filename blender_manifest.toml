@@ -28,6 +28,9 @@ license = [
   "SPDX:GPL-3.0-or-later",
 ]
 # Optional: required by some licenses.
+copyright = [
+  "2026 Frikadel_ka",
+]
 # copyright = [
 #   "2002-2024 Developer Name",
 #   "1998 Company Name",

@@ -1,0 +1,41 @@
+name: Build and Release Blender Extension
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Extract Tag Version
+        id: get_version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_ENV
+
+      - name: Pack Extension into ZIP
+        run: |
+          ZIP_NAME="mass_drop-v${{ env.VERSION }}.zip"
+          
+          # Упаковываем всё содержимое репозитория, исключая мусор и системные файлы
+          zip -r "$ZIP_NAME" . -x "*.git*" "*.github*" "*__pycache__*" "*.DS_Store"
+          
+          echo "ZIP_PATH=$ZIP_NAME" >> $GITHUB_ENV
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ env.ZIP_PATH }}
+          name: Release v${{ env.VERSION }}
+          generate_release_notes: true
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

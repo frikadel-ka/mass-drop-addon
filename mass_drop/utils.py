@@ -12,6 +12,7 @@ def get_scene_obj_names(scene):
 
 
 def redraw_ui():
+    """Перерисовывает интерфейс"""
     wm = bpy.context.window_manager
     if wm is None:
         return
@@ -27,20 +28,24 @@ def redraw_ui():
 
 
 def on_toggle_projection(self, context):
+    # Если кнопка активна обнуляем кэш и перерисовываем интерфейс
     runtime.reset_projection_cache()
     redraw_ui()
 
 
 def draw_callback():
+    # Если кнопка в ui выключена - return
     if not bpy.context.scene.center_mass_props.is_enabled:
         return
     com_loc = total_loc()
+    # Если объектов нет то батчи в none 
     if com_loc is None:
         runtime.reset_projection_cache()
         return
 
     cache = runtime.get_cache()
     last = cache["last_com"]
+    # Если прошлой позиции нет или разница больше эпс то кэшируем
     if last is None or (last - com_loc).length > 1e-6:
         shader = gpu.shader.from_builtin('UNIFORM_COLOR')
         coords = [
@@ -49,9 +54,10 @@ def draw_callback():
         ]
         cache["batch"] = batch_for_shader(shader, 'LINES', {"pos": coords})
         cache["last_com"] = com_loc.copy()
-
+    # Если нет батчей в кэше то ничего
     if not cache["batch"]:
         return
+    # Рисуем линию из кэша
     shader = gpu.shader.from_builtin('UNIFORM_COLOR')
     shader.bind()
     shader.uniform_float("color", (1.0, 0.0, 0.0, 1.0))
@@ -61,16 +67,21 @@ def draw_callback():
 
 
 def get_global_com(obj):
+    """Получаем глобальные координаты объекта"""
     if not obj or obj.type != 'MESH':
         return None
+    # Возвращаем локальную позицию из кэша
     local_com = runtime.get_cached_com(obj.name)
+    # Если такой нет то считаем локальные
     if local_com is None:
         bm = bmesh.new()
         bm.from_mesh(obj.data)
         is_solid = all(len(e.link_faces) == 2 for e in bm.edges)
         local_com = get_bmesh_volume_center(bm) if is_solid else get_bmesh_surface_center(bm)
         bm.free()
+        # Кэшируем
         runtime.set_cached_com(obj.name, local_com)
+    # Возвращаем глобальные координаты объекта
     return obj.matrix_world @ local_com
 
 # ---Функции для находения центра объекта--- ПЕРЕДЕЛАТЬ!!! ЧТОБЫ СЧИТАЛО ПО ГЛОБАЛЬНЫМ КООРДИНАТАМ
@@ -173,5 +184,5 @@ def total_loc():
     if total_mass <= 0:
         return None
         
-    return weighted_sum / total_mass# ---Функции отрисовки линии и проекции--- (пока только линий)
+    return weighted_sum / total_mass # Возвращаем центр масс
 

@@ -10,13 +10,15 @@ _cleaning = False  # защита от рекурсии, приватно для
 @persistent
 def update_positions(scene, depsgraph):
     """Сбрасывает кэш COM при изменении геометрии отслеживаемых объектов."""
+    # Ничего не делаем если кнопка выключена или сцены нет
     if scene is None or not hasattr(scene, "center_mass_props"):
         return
     if not scene.center_mass_props.is_enabled:
         return
-
+    # Список имен объектов из adv_mass_list
     tracked_names = {item.obj.name for item in scene.adv_mass_list if item.obj}
 
+    # Если в сцене изменилась геометрия объекта то имя объекта удалится из _com_cach соотв линия перестроится
     for update in depsgraph.updates:
         uid = update.id
         if hasattr(uid, "original") and uid.original is not None:
@@ -37,6 +39,7 @@ def _clean_adv_mass_list(scene, depsgraph=None):
 
     _cleaning = True
     try:
+        # Проверяет наличие объектов из adv_mass_list в сцене и при ненаходе удаляет из списка
         lst = scene.adv_mass_list
         scene_obj_names = set(scene.objects.keys())
         removed = False
