@@ -24,8 +24,9 @@ def update_positions(scene, depsgraph):
         if hasattr(uid, "original") and uid.original is not None:
             uid = uid.original
         if isinstance(uid, bpy.types.Object) and uid.name in tracked_names:
-            if update.is_updated_geometry:
+            if update.is_updated_geometry or update.is_updated_transform:
                 runtime.invalidate_com(uid.name)
+                runtime.invalidate_vol((uid.name, uid.data.name))
 
 
 @persistent

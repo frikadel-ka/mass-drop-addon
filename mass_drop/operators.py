@@ -2,7 +2,7 @@ import bpy
 from bpy.types import Operator
 from mathutils import Vector
 from . import runtime
-from .utils import total_loc, redraw_ui
+from .utils import total_loc, redraw_ui, compute_obj_volume
 
 # 3. Кнопка импорта объектов
 class WM_OT_populate_advanced_list(Operator):
@@ -10,14 +10,16 @@ class WM_OT_populate_advanced_list(Operator):
     bl_label = "Import Selected Objects"
 
     def execute(self, context):
+        runtime.clear_vol_cache()
         context.scene.adv_mass_list.clear()
         for obj in context.selected_objects:
             item = context.scene.adv_mass_list.add()
             item.obj = obj
             if obj.rigid_body:
                 item.mass = obj.rigid_body.mass
+            if obj.type == 'MESH':
+                runtime.set_cached_vol(obj.name, compute_obj_volume(obj))
         return {'FINISHED'}
-
 # Функция для вычисления объема с учетом модификаторов
 
 # 4. Кнопка умного расчета центра масс
@@ -50,6 +52,9 @@ class WM_OT_add_objects(Operator):
             item.obj = obj
             if obj.rigid_body:
                 item.mass = obj.rigid_body.mass
+            # прогреть кэш объёма
+            if obj.type == 'MESH':
+                runtime.set_cached_vol(obj.name, compute_obj_volume(obj))
             added += 1
         if skipped:
             self.report({'WARNING'}, f"Уже в списке: {skipped}")

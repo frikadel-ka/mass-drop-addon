@@ -25,7 +25,7 @@ class AdvancedMassListItem(PropertyGroup):
             ('MASS', "Mass", "Enter mass directly", 'PHYSICS', 0),
             ('DENSITY', "Density", "Enter density manually", 'NODE_MATERIAL', 1)
         ],
-        default='MASS'
+        default='DENSITY'
     )
     
     # Поля для хранения данных

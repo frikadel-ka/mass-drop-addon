@@ -81,6 +81,7 @@ def unregister():
 
     runtime.clear_com_cache()
     runtime.reset_projection_cache()
+    runtime.clear_vol_cache()
 
     del bpy.types.Scene.center_mass_props
     del bpy.types.Scene.adv_mass_list

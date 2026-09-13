@@ -12,7 +12,6 @@ def get_scene_obj_names(scene):
 
 
 def redraw_ui():
-    """Перерисовывает интерфейс"""
     wm = bpy.context.window_manager
     if wm is None:
         return
@@ -23,8 +22,6 @@ def redraw_ui():
         for area in screen.areas:
             if area.type in {'VIEW_3D', 'PROPERTIES', 'OUTLINER'}:
                 area.tag_redraw()
-        for region in screen.regions:
-            region.tag_redraw()
 
 
 def on_toggle_projection(self, context):
@@ -141,17 +138,33 @@ def get_bmesh_surface_center(bm: bmesh.types.BMesh) -> Vector:
         
     return Vector((0.0, 0.0, 0.0))
 
-def get_obj_volume(obj):
+def compute_obj_volume(obj) -> float:
+    """Считает объём меша с учётом модификаторов и масштаба. Без кэша."""
+    if not obj or obj.type != 'MESH':
+        return 0.0
     try:
         depsgraph = bpy.context.evaluated_depsgraph_get()
-        obj_eval = obj.evaluated_get(depsgraph)
-        mesh_eval = obj_eval.to_mesh()
-        volume = mesh_eval.calc_volume()
-        obj_eval.to_mesh_clear()
-        scale = obj.scale
-        return volume * (scale.x * scale.y * scale.z)
-    except:
-        return 1.0 # Если у объекта нет геометрии (например, Empty)
+        bm = bmesh.new()
+        bm.from_object(obj, depsgraph)
+        volume = bm.calc_volume()
+        bm.free()
+        s = obj.scale
+        return volume * (s.x * s.y * s.z)
+    except Exception as e:
+        print(f"compute_obj_volume FAIL for {obj.name}: {e!r}")
+        return 0.0
+
+
+def get_obj_volume(obj) -> float:
+    """Кэшированная версия. Считает только если в кэше пусто."""
+    if not obj or obj.type != 'MESH':
+        return 0.0
+    key = (obj.name, obj.data.name)   # ← ключ учитывает и объект, и меш
+    vol = runtime.get_cached_vol(key)
+    if vol is None:
+        vol = compute_obj_volume(obj)
+        runtime.set_cached_vol(key, vol)
+    return vol
 
 def total_loc():
     scene = bpy.context.scene

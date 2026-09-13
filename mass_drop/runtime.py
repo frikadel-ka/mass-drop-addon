@@ -12,6 +12,8 @@ _runtime_cache = {
 
 _com_cache: dict = {}
 
+_vol_cache: dict = {}
+
 
 # --- GPU / проекция ---
 
@@ -42,3 +44,16 @@ def invalidate_com(name: str) -> None:
 
 def clear_com_cache() -> None:
     _com_cache.clear()
+
+
+def get_cached_vol(name: str):
+    return _vol_cache.get(name)
+
+def set_cached_vol(name: str, value) -> None:
+    _vol_cache[name] = value
+
+def invalidate_vol(name: str) -> None:
+    _vol_cache.pop(name, None)
+
+def clear_vol_cache() -> None:
+    _vol_cache.clear()
